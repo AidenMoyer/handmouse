@@ -17,7 +17,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptPath = $MyInvocation.MyCommand.Path
+$dir = if ($scriptPath) { Split-Path -Parent $scriptPath } else { $PWD.Path }
 Set-Location $dir
 
 function Say($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }

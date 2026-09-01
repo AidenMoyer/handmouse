@@ -1,70 +1,92 @@
 # handmouse
 
-Control your Windows mouse with hand gestures using your webcam. No WSL required — runs natively on Windows.
+Control your mouse with your hand using a webcam. No special hardware needed.
 
-## Quick install (one command)
+## Quick install (Windows)
 
-Open PowerShell and run:
+Open **PowerShell** (search "PowerShell" in Start — does **not** need to be run as Administrator) and run these three commands:
 
 ```powershell
-git clone https://github.com/moyeraiden1014/handmouse.git
+git clone https://github.com/AidenMoyer/handmouse
 cd handmouse
 .\setup_windows.ps1
 ```
 
-That's it. A **handmouse** shortcut will appear on your Desktop.
+That's it. The setup script will:
+- Install Python 3.11 if missing (via winget)
+- Install ffmpeg if missing (via winget)
+- Install the Visual C++ runtime (required by mediapipe / opencv)
+- Create a Python virtual environment and install all packages
+- Download the MediaPipe hand-landmarker model (~8 MB)
+- Create a **handmouse** shortcut on your Desktop
 
-## What it does
+After setup, double-click the **handmouse** shortcut on your Desktop to open the control panel.
+
+---
+
+## Requirements
+
+| Requirement | Notes |
+|---|---|
+| Windows 10 21H2+ or Windows 11 | winget must be available |
+| A webcam | Any USB or built-in camera |
+| Python 3.9–3.12 | Auto-installed if missing |
+| ffmpeg | Auto-installed if missing |
+
+> **GPU acceleration** is listed in the settings but has no effect — the standard
+> `pip install mediapipe` on Windows is compiled without GPU support.
+> The app runs on CPU+XNNPACK (multi-threaded) which is fast enough for real-time use.
+
+---
+
+## Gestures
 
 | Gesture | Action |
 |---|---|
 | Open hand (all fingers extended) | Move mouse |
-| Pinch **thumb + index** | Left click (hold to drag) |
-| Pinch **thumb + middle** + move | Scroll |
-| Pinch **thumb + pinky** | Right click |
-| Fist / no hand visible | Idle |
+| Thumb + index finger pinch | Left click / drag |
+| Thumb + middle finger pinch | Scroll |
+| Thumb + pinky finger pinch | Right click |
+| Closed fist | Pause — cursor freezes |
 
-## GUI
+**Tracking modes** (selectable in the GUI):
 
-Double-click the **handmouse** desktop shortcut (or run `handmouse_gui.py`) to open the control panel:
+- **Relative (trackpad)** *(default)* — works like a trackpad. Fist to pause, open hand to resume from the same spot. Cursor moves freely across all monitors.
+- **Absolute** — hand position in the camera frame maps directly to the selected monitor.
 
-- **Camera** — pick from all detected webcams
-- **Resolution** — VGA up to 4K (camera must support it)
-- **FPS** — 15 / 24 / 30 / 60
-- **Sensitivity** — how much hand movement maps to screen movement
-- **Mirror** — flip horizontally (on by default, natural selfie-cam feel)
-- **Preview window** — show the camera feed with landmark dots
+---
 
-## Manual usage
+## Settings
 
-```powershell
-cd handmouse
+All settings are saved automatically in `settings.json` next to the scripts and restored on next launch.
 
-# list cameras
-.\venv-win\Scripts\python.exe handmouse_win.py --list
-
-# run (default settings)
-.\venv-win\Scripts\python.exe handmouse_win.py
-
-# full HD, higher sensitivity, show preview
-.\venv-win\Scripts\python.exe handmouse_win.py --width 1280 --height 720 --sensitivity 1.5 --show
-```
-
-## Requirements
-
-- Windows 10/11
-- Python 3.11+ (installed separately or via `winget install Python.Python.3.13`)
-- A USB webcam (Logitech C920 or similar)
-- ffmpeg (installed automatically by `setup_windows.ps1`)
-
-## Files
-
-| File | Purpose |
+| Setting | Description |
 |---|---|
-| `handmouse_gui.py` | Tkinter GUI — start here |
-| `handmouse_win.py` | Core tracker (camera + hand detection + mouse) |
-| `gestures.py` | Finger / pinch gesture classifier |
-| `protocol.py` | Wire protocol (used by the legacy WSL relay) |
-| `mouse_relay.py` | Legacy WSL→Windows relay (not needed for Windows-native) |
-| `setup_windows.ps1` | One-command setup script |
-| `hand_landmarker.task` | MediaPipe model (downloaded by setup) |
+| Camera | Which webcam to use |
+| Control monitor | Which monitor to control (absolute mode only) |
+| Resolution | Camera capture resolution (higher = more CPU; inference always runs at 640×480) |
+| FPS | Camera frame rate |
+| Track hand | Which hand to track — any, left, or right |
+| Tracking mode | Relative (trackpad) or Absolute |
+| Sensitivity | How much cursor movement per hand movement |
+| Mirror | Flip camera so left/right match your perspective |
+| Preview window | Show camera feed with landmark overlay |
+
+---
+
+## Troubleshooting
+
+**"No frames — check device name with --list"**
+The camera name in settings doesn't match what Windows sees. Hit **↻ Refresh cameras & monitors** in the GUI, then re-select your camera from the dropdown.
+
+**"tkinter not found"**
+Your Python was installed from the Microsoft Store — it strips tkinter. Uninstall it and reinstall Python from [python.org](https://python.org), making sure to check **tcl/tk and IDLE** during setup.
+
+**Cursor drifts when hand is still**
+Lower the sensitivity slider. The dead zone already filters sub-pixel noise; very high sensitivity amplifies any residual motion.
+
+**Hand not detected**
+Make sure you're in good lighting. The hand should be clearly visible against the background. Try moving the camera or adjusting your position.
+
+**Scroll not working**
+Use a thumb + middle finger pinch. Make sure your middle finger is the closest fingertip to your thumb (the app picks the nearest finger to avoid false triggers from adjacent fingers).
