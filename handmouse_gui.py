@@ -178,13 +178,32 @@ class HandmouseGUI(tk.Tk):
         lbl("Sensitivity", 5)
         sens_frame = tk.Frame(card, bg=PANEL)
         sens_frame.grid(row=5, column=1, sticky="ew", padx=14, pady=5)
-        self._sens_lbl = tk.Label(sens_frame, text="1.0×", font=("Segoe UI", 10),
-                                   bg=PANEL, fg=ACCENT, width=5, anchor="e")
-        self._sens_lbl.pack(side="right")
-        ttk.Scale(sens_frame, from_=0.3, to=3.0, orient="horizontal",
+
+        def _sens_slider_moved(v):
+            self._sens_entry_var.set(f"{float(v):.1f}")
+
+        def _sens_entry_changed(*_):
+            try:
+                val = float(self._sens_entry_var.get())
+                val = max(0.1, min(20.0, val))
+                self._sens_var.set(val)
+            except ValueError:
+                pass
+
+        self._sens_entry_var = tk.StringVar(value="1.0")
+        self._sens_entry_var.trace_add("write", _sens_entry_changed)
+
+        ttk.Scale(sens_frame, from_=0.1, to=20.0, orient="horizontal",
                   variable=self._sens_var,
-                  command=lambda v: self._sens_lbl.config(text=f"{float(v):.1f}×")
-                  ).pack(side="left", fill="x", expand=True)
+                  command=_sens_slider_moved
+                  ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        tk.Entry(sens_frame, textvariable=self._sens_entry_var,
+                 width=5, font=("Segoe UI", 10),
+                 bg="#3a3a5c", fg=TEXT, insertbackground=TEXT,
+                 relief="groove", bd=1, justify="center"
+                 ).pack(side="right")
+        tk.Label(sens_frame, text="×", font=("Segoe UI", 10),
+                 bg=PANEL, fg=MUTED).pack(side="right")
 
         # ── toggles row ────────────────────────────────────────────────────
         tog = tk.Frame(card, bg=PANEL)
@@ -312,7 +331,7 @@ class HandmouseGUI(tk.Tk):
             "--fps",         self._fps_var.get(),
             "--hand",        self._hand_var.get(),
             "--monitor",     str(self._mon_index()),
-            "--sensitivity", f"{self._sens_var.get():.2f}",
+            "--sensitivity", f"{self._sens_var.get():.2f}",   # clamped 0.1–20
         ]
         if self._mirror_var.get():
             cmd.append("--mirror")

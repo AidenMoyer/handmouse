@@ -226,12 +226,11 @@ class MouseController:
                     self._scroll_anchor = (palm[0], palm[1])
 
         elif gesture == "fist":
-            # hand is closed — release buttons immediately and freeze cursor
+            # hand is closed — release buttons and freeze cursor.
+            # EMA is intentionally NOT reset: when the hand reopens the cursor
+            # continues smoothly from exactly the same spot.
             self.cleanup()
             self._scroll_anchor = None
-            # reset EMA so cursor doesn't drift when hand reopens from a different position
-            self.sx.val = None
-            self.sy.val = None
 
         else:  # "none" — transitional state, hold position without acting
             self._scroll_anchor = None
@@ -251,13 +250,15 @@ def pick_hand(result, prefer: str, mirror: bool):
     """
     Return (landmarks, user_hand_label) for the preferred hand, or (None, None).
 
-    MediaPipe labels hands from the *camera's* point of view (as if reading a
-    non-mirrored image).  When mirror=True the image is spatially flipped before
-    display, so camera-Left = user's Right.  When mirror=False the image matches
-    reality, so camera-Left = user's Left.
+    We always pass the raw (non-mirrored) BGR frame to MediaPipe.  In a standard
+    front-facing camera the image is already a mirror of the scene, so what the
+    camera puts on the LEFT side of the frame is the person's physical RIGHT hand.
+    MediaPipe's model is trained to account for this, but its label is still from
+    the camera's point of view — so "Left" from the model = person's right hand.
+    We therefore always flip the label to match physical reality.
 
-    We also require the top-category confidence > 0.6 to avoid the model
-    flip-flopping between "Left"/"Right" on an ambiguous single detection.
+    The display mirror flag does NOT affect this: we never mirror the image before
+    handing it to MediaPipe, only before showing it on screen.
     """
     if not result.hand_landmarks:
         return None, None
@@ -267,13 +268,13 @@ def pick_hand(result, prefer: str, mirror: bool):
     for lm_list, handed_list in zip(result.hand_landmarks, result.handedness):
         cat = handed_list[0]
         score = cat.score
-        if score < 0.6:          # low-confidence classification — skip
+        if score < 0.6:
             continue
-        raw_label = cat.category_name   # "Left" or "Right" (camera view)
-        user_label = ("Right" if raw_label == "Left" else "Left") if mirror else raw_label
+        raw_label = cat.category_name          # "Left"/"Right" from camera view
+        user_label = "Right" if raw_label == "Left" else "Left"   # always flip
 
         if prefer == "any" or user_label.lower() == prefer.lower():
-            if score > best_score:       # take the highest-confidence match
+            if score > best_score:
                 best_lm, best_label, best_score = lm_list, user_label, score
 
     return best_lm, best_label
@@ -327,7 +328,7 @@ def main():
     ap.add_argument("--hand", choices=["left", "right", "any"], default="any",
                     help="Which hand to track (default: any)")
     ap.add_argument("--sensitivity", type=float, default=1.0,
-                    help="Mouse sensitivity multiplier")
+                    help="Mouse sensitivity multiplier (0.1–20.0; higher = less hand movement needed)")
     ap.add_argument("--gpu", action="store_true",
                     help="Try GPU delegate (NVIDIA/AMD); falls back to CPU")
     ap.add_argument("--list", action="store_true",
