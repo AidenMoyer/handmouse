@@ -225,8 +225,15 @@ class MouseController:
                     pyautogui.scroll(int(scroll_lines))
                     self._scroll_anchor = (palm[0], palm[1])
 
-        else:
+        elif gesture == "fist":
+            # hand is closed — release buttons immediately and freeze cursor
             self.cleanup()
+            self._scroll_anchor = None
+            # reset EMA so cursor doesn't drift when hand reopens from a different position
+            self.sx.val = None
+            self.sy.val = None
+
+        else:  # "none" — transitional state, hold position without acting
             self._scroll_anchor = None
 
     def cleanup(self):
