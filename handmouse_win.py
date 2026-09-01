@@ -377,7 +377,12 @@ def pick_hand(result, prefer: str, mirror: bool):
 # ── GPU delegate helper ───────────────────────────────────────────────────────
 
 def build_hands(use_gpu: bool):
-    """Build HandLandmarker, trying GPU delegate first if requested."""
+    """Build HandLandmarker in VIDEO mode, trying GPU delegate first if requested.
+
+    VIDEO mode maintains a persistent streaming pipeline whose worker threads are
+    reused across frames — IMAGE mode creates new threads per call and leaks them,
+    causing the process to slow to a crawl and eventually crash with STATUS_TOO_MANY_THREADS.
+    """
     delegates = ([BaseOptions.Delegate.GPU, BaseOptions.Delegate.CPU]
                  if use_gpu else [BaseOptions.Delegate.CPU])
 
@@ -388,14 +393,14 @@ def build_hands(use_gpu: bool):
                     model_asset_path=MODEL_PATH,
                     delegate=delegate,
                 ),
-                num_hands=2,  # detect up to 2 so hand selection works
+                num_hands=2,
                 min_hand_detection_confidence=0.6,
                 min_tracking_confidence=0.5,
-                running_mode=mp_vision.RunningMode.IMAGE,
+                running_mode=mp_vision.RunningMode.VIDEO,
             )
             detector = mp_vision.HandLandmarker.create_from_options(opts)
             label = "GPU" if delegate == BaseOptions.Delegate.GPU else "CPU"
-            print(f"Hand detector: {label}")
+            print(f"Hand detector: {label} (VIDEO mode)")
             return detector
         except Exception as e:
             if delegate == BaseOptions.Delegate.GPU:
@@ -478,6 +483,7 @@ def main():
 
     last_seq    = 0
     no_hand_t   = None   # time when hand was last lost
+    _t0         = time.monotonic()  # reference for VIDEO-mode timestamps
     BUTTON_RELEASE_GRACE = 0.6   # seconds before releasing held buttons after hand disappears
     try:
         while True:
@@ -492,7 +498,8 @@ def main():
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = hands.detect(mp_image)
+            ts_ms = int((time.monotonic() - _t0) * 1000)
+            result = hands.detect_for_video(mp_image, ts_ms)
 
             lm_list, hand_label = pick_hand(result, args.hand, args.mirror)
 
