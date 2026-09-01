@@ -189,8 +189,6 @@ class MouseController:
         self._px = EMA(0.5)       # palm position smoothers
         self._py = EMA(0.5)
         self._prev_palm = None    # None = anchor fresh on next frame
-        self._cx: float | None = None  # internally tracked cursor position
-        self._cy: float | None = None
 
         # ── absolute mode state ──
         self.sx = EMA(0.35)       # screen-coord smoothers
@@ -282,20 +280,18 @@ class MouseController:
     def _move_delta(self, dpx, dpy):
         """Apply a normalised-coord delta, clamped to the virtual desktop.
 
-        Speed is always relative to the primary monitor size so the cursor moves
-        at the same rate regardless of how many monitors are connected.  The per-
-        frame delta is capped so a fast corner-snap can't teleport the cursor.
+        Reads the real OS cursor position each call instead of tracking internally —
+        this ensures any drift (DPI rounding, another app nudging the cursor, etc.)
+        never accumulates and the cursor can't suddenly jump to a stale position.
         """
-        if self._cx is None:
-            cx, cy = pyautogui.position()
-            self._cx, self._cy = float(cx), float(cy)
-        # clamp per-frame delta to prevent accidental large jumps
+        # clamp per-frame delta to prevent accidental large jumps from fast swipes
         dpx = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpx))
         dpy = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpy))
+        cx, cy = pyautogui.position()   # always ground truth from the OS
         vx1, vy1, vx2, vy2 = self._vd
-        self._cx = max(vx1, min(vx2 - 1, self._cx + dpx * self.sensitivity * self._ref_w))
-        self._cy = max(vy1, min(vy2 - 1, self._cy + dpy * self.sensitivity * self._ref_h))
-        pyautogui.moveTo(int(self._cx), int(self._cy))
+        nx = max(vx1, min(vx2 - 1, cx + dpx * self.sensitivity * self._ref_w))
+        ny = max(vy1, min(vy2 - 1, cy + dpy * self.sensitivity * self._ref_h))
+        pyautogui.moveTo(int(nx), int(ny))
 
     def _update_rel(self, palm, gesture):
         px = self._px.update(self._norm_x(palm[0]))
@@ -529,8 +525,6 @@ def main():
                 now = time.monotonic()
                 if no_hand_t is None:
                     no_hand_t = now
-                    # drop cursor cache + anchor so re-entry starts fresh
-                    ctrl._cx = None
                     if ctrl.mode == "relative":
                         ctrl._reset_tracking()
                 elif now - no_hand_t >= BUTTON_RELEASE_GRACE:
