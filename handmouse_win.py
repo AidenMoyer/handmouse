@@ -154,86 +154,123 @@ class FFmpegCamera:
 # ── mouse controller ──────────────────────────────────────────────────────────
 
 class MouseController:
-    SCROLL_SCALE = 15  # pixels of hand movement per scroll line
+    # How many scroll lines per normalized-unit of vertical hand movement.
+    # Positive = hand up → scroll up.
+    SCROLL_LINES_PER_UNIT = 8
 
     def __init__(self, monitor, cam_w, cam_h, mirror, sensitivity=1.0):
         self.mon = monitor          # screeninfo Monitor object
         self.cw, self.ch = cam_w, cam_h
         self.mirror = mirror
         self.sensitivity = sensitivity
-        self.sx = EMA(0.35)
-        self.sy = EMA(0.35)
-        self._scroll_anchor = None
+        # EMA smoothers on the raw palm position (not screen coords)
+        self._px = EMA(0.5)
+        self._py = EMA(0.5)
+        # previous smoothed palm position — None means "cursor is anchored here"
+        self._prev_palm = None
+        # tracked cursor position (avoids repeated pyautogui.position() calls)
+        self._cx: float | None = None
+        self._cy: float | None = None
         self._left_down = False
         self._right_down = False
 
-    def _map(self, nx, ny):
-        """Map normalized [0,1] hand coords → absolute screen pixel on target monitor."""
-        if self.mirror:
-            nx = 1.0 - nx
-        margin = max(0.02, 0.15 / self.sensitivity)
-        nx = (nx - margin) / (1 - 2 * margin)
-        ny = (ny - margin) / (1 - 2 * margin)
-        nx = max(0.0, min(1.0, nx))
-        ny = max(0.0, min(1.0, ny))
-        # map to this monitor's absolute coordinates
-        x = self.mon.x + int(nx * self.mon.width)
-        y = self.mon.y + int(ny * self.mon.height)
-        return x, y
+    def _norm_x(self, nx):
+        """Flip x for mirror mode (camera sees mirrored world)."""
+        return 1.0 - nx if self.mirror else nx
+
+    def _move_delta(self, dpx, dpy):
+        """Apply a normalized-coord delta to the cursor, clamped to the monitor."""
+        if self._cx is None:
+            cx, cy = pyautogui.position()
+            self._cx, self._cy = float(cx), float(cy)
+        self._cx += dpx * self.sensitivity * self.mon.width
+        self._cy += dpy * self.sensitivity * self.mon.height
+        # clamp to target monitor
+        self._cx = max(self.mon.x, min(self.mon.x + self.mon.width  - 1, self._cx))
+        self._cy = max(self.mon.y, min(self.mon.y + self.mon.height - 1, self._cy))
+        pyautogui.moveTo(int(self._cx), int(self._cy))
+
+    def _smooth_palm(self, palm):
+        """Return EMA-smoothed (x, y) with mirror applied."""
+        px = self._px.update(self._norm_x(palm[0]))
+        py = self._py.update(palm[1])
+        return px, py
+
+    def _reset_tracking(self):
+        """Forget the previous palm position so the next move frame anchors fresh."""
+        self._prev_palm = None
+        self._px.val = None
+        self._py.val = None
 
     def update(self, lm_norm, gesture):
         palm = _palm_center(lm_norm)
-        sx, sy = self._map(palm[0], palm[1])
-        sx = int(self.sx.update(sx))
-        sy = int(self.sy.update(sy))
+        px, py = self._smooth_palm(palm)
 
-        if gesture == "move":
-            if self._left_down:
-                pyautogui.mouseUp(button="left")
-                self._left_down = False
-            if self._right_down:
-                pyautogui.mouseUp(button="right")
-                self._right_down = False
-            self._scroll_anchor = None
-            pyautogui.moveTo(sx, sy)
+        if gesture in ("move", "left", "right", "scroll"):
+            if self._prev_palm is None:
+                # First frame of (re)tracking — record anchor, don't move the cursor.
+                # This is what keeps the cursor from jumping when the hand reappears.
+                self._prev_palm = (px, py)
+                # Still engage click/scroll state transitions immediately.
+                if gesture == "left" and not self._left_down:
+                    pyautogui.mouseDown(button="left")
+                    self._left_down = True
+                elif gesture == "right" and not self._right_down:
+                    pyautogui.mouseDown(button="right")
+                    self._right_down = True
+                return
 
-        elif gesture == "left":
-            pyautogui.moveTo(sx, sy)
-            if not self._left_down:
-                pyautogui.mouseDown(button="left")
-                self._left_down = True
+            # Delta from the previous frame in normalized coords.
+            dpx = px - self._prev_palm[0]
+            dpy = py - self._prev_palm[1]
+            self._prev_palm = (px, py)
 
-        elif gesture == "right":
-            pyautogui.moveTo(sx, sy)
-            if not self._right_down:
-                pyautogui.mouseDown(button="right")
-                self._right_down = True
+            if gesture == "move":
+                if self._left_down:
+                    pyautogui.mouseUp(button="left")
+                    self._left_down = False
+                if self._right_down:
+                    pyautogui.mouseUp(button="right")
+                    self._right_down = False
+                self._move_delta(dpx, dpy)
 
-        elif gesture == "scroll":
-            if self._left_down:
-                pyautogui.mouseUp(button="left")
-                self._left_down = False
-            if self._right_down:
-                pyautogui.mouseUp(button="right")
-                self._right_down = False
-            if self._scroll_anchor is None:
-                self._scroll_anchor = (palm[0], palm[1])
-            else:
-                dy_norm = palm[1] - self._scroll_anchor[1]
-                scroll_lines = -dy_norm * self.ch / self.SCROLL_SCALE
-                if abs(scroll_lines) >= 1:
-                    pyautogui.scroll(int(scroll_lines))
-                    self._scroll_anchor = (palm[0], palm[1])
+            elif gesture == "left":
+                if self._right_down:
+                    pyautogui.mouseUp(button="right")
+                    self._right_down = False
+                self._move_delta(dpx, dpy)
+                if not self._left_down:
+                    pyautogui.mouseDown(button="left")
+                    self._left_down = True
+
+            elif gesture == "right":
+                if self._left_down:
+                    pyautogui.mouseUp(button="left")
+                    self._left_down = False
+                self._move_delta(dpx, dpy)
+                if not self._right_down:
+                    pyautogui.mouseDown(button="right")
+                    self._right_down = True
+
+            elif gesture == "scroll":
+                if self._left_down:
+                    pyautogui.mouseUp(button="left")
+                    self._left_down = False
+                if self._right_down:
+                    pyautogui.mouseUp(button="right")
+                    self._right_down = False
+                scroll_lines = int(-dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity)
+                if scroll_lines:
+                    pyautogui.scroll(scroll_lines)
 
         elif gesture == "fist":
-            # hand is closed — release buttons and freeze cursor.
-            # EMA is intentionally NOT reset: when the hand reopens the cursor
-            # continues smoothly from exactly the same spot.
+            # Fist = cursor pause. Release buttons, freeze cursor, drop anchor so
+            # when the hand reopens next the cursor continues from exactly here.
             self.cleanup()
-            self._scroll_anchor = None
+            self._reset_tracking()
 
-        else:  # "none" — transitional state, hold position without acting
-            self._scroll_anchor = None
+        else:  # "none" — transitional / ambiguous hand state
+            self._reset_tracking()
 
     def cleanup(self):
         if self._left_down:
@@ -404,12 +441,15 @@ def main():
                 gesture, _ = classify(lm)
                 ctrl.update(lm, gesture)
             else:
-                # cursor stays at last position — just track how long the hand has been gone
+                # cursor stays at last position — track how long the hand has been gone
                 now = time.monotonic()
                 if no_hand_t is None:
                     no_hand_t = now
+                    # drop the internal cursor cache so we re-query it from the OS
+                    # when the hand returns (other things may have moved the cursor)
+                    ctrl._cx = None
+                    ctrl._reset_tracking()
                 elif now - no_hand_t >= BUTTON_RELEASE_GRACE:
-                    # release held buttons after the grace period so clicks don't get stuck
                     ctrl.cleanup()
 
             if args.show:
