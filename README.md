@@ -4,9 +4,13 @@ Control your mouse with your hand using a webcam. No special hardware needed.
 
 ## Quick install (Windows)
 
-Open **PowerShell** (search "PowerShell" in Start — does **not** need to be run as Administrator) and run these three commands:
+Open **PowerShell** (search "PowerShell" in Start — does **not** need to be run as Administrator) and run these commands in order:
 
 ```powershell
+# 1. Allow PowerShell scripts to run (only needed once per machine)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# 2. Clone the repo and run setup
 git clone https://github.com/AidenMoyer/handmouse
 cd handmouse
 .\setup_windows.ps1
@@ -75,6 +79,15 @@ All settings are saved automatically in `settings.json` next to the scripts and 
 ---
 
 ## Troubleshooting
+
+**"setup_windows.ps1 is not recognized" or "running scripts is disabled"**
+PowerShell's default security policy blocks `.ps1` files. Run this once first, then try again:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**"repository not found" when cloning**
+Make sure you use the exact URL: `https://github.com/AidenMoyer/handmouse` — note the username is **AidenMoyer**, not the email address.
 
 **"No frames — check device name with --list"**
 The camera name in settings doesn't match what Windows sees. Hit **↻ Refresh cameras & monitors** in the GUI, then re-select your camera from the dropdown.
