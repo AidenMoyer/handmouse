@@ -22,6 +22,7 @@ RESOLUTIONS = [
 ]
 FPS_OPTIONS  = ["15", "24", "30", "60"]
 HAND_OPTIONS = ["any", "left", "right"]
+MODE_OPTIONS = ["relative  (trackpad, all monitors)", "absolute  (maps hand to monitor)"]
 
 DEFAULTS = {
     "camera":      None,   # None = first detected
@@ -33,6 +34,7 @@ DEFAULTS = {
     "mirror":      True,
     "show":        False,
     "gpu":         False,
+    "mode":        MODE_OPTIONS[0],
 }
 
 DARK   = "#1e1e2e"
@@ -198,12 +200,17 @@ class HandmouseGUI(tk.Tk):
         lbl("Track hand", 4)
         menu(card, HAND_OPTIONS, self._hand_var, 4)
 
+        # Tracking mode
+        self._mode_var = tk.StringVar()
+        lbl("Tracking mode", 5)
+        menu(card, MODE_OPTIONS, self._mode_var, 5)
+
         # Sensitivity
         self._sens_var       = tk.DoubleVar(value=1.0)
         self._sens_entry_var = tk.StringVar(value="1.0")
-        lbl("Sensitivity", 5)
+        lbl("Sensitivity", 6)
         sf = tk.Frame(card, bg=PANEL)
-        sf.grid(row=5, column=1, sticky="ew", padx=14, pady=5)
+        sf.grid(row=6, column=1, sticky="ew", padx=14, pady=5)
 
         def _slider_moved(v):
             if not self._saving:
@@ -231,7 +238,7 @@ class HandmouseGUI(tk.Tk):
 
         # Toggles
         tog = tk.Frame(card, bg=PANEL)
-        tog.grid(row=6, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 10))
+        tog.grid(row=7, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 10))
 
         def toggle(parent, text, var):
             return tk.Checkbutton(parent, text=text, variable=var,
@@ -317,6 +324,9 @@ class HandmouseGUI(tk.Tk):
             self._sens_var.set(sens)
             self._sens_entry_var.set(f"{sens:.1f}")
 
+            mode = s.get("mode", DEFAULTS["mode"])
+            self._mode_var.set(mode if mode in MODE_OPTIONS else DEFAULTS["mode"])
+
             self._mirror_var.set(bool(s.get("mirror", DEFAULTS["mirror"])))
             self._show_var.set(bool(s.get("show",   DEFAULTS["show"])))
             self._gpu_var.set(bool(s.get("gpu",     DEFAULTS["gpu"])))
@@ -332,6 +342,7 @@ class HandmouseGUI(tk.Tk):
             "fps":         self._fps_var.get(),
             "hand":        self._hand_var.get(),
             "sensitivity": round(self._sens_var.get(), 2),
+            "mode":        self._mode_var.get(),
             "mirror":      self._mirror_var.get(),
             "show":        self._show_var.get(),
             "gpu":         self._gpu_var.get(),
@@ -345,8 +356,8 @@ class HandmouseGUI(tk.Tk):
     def _attach_save_traces(self):
         """Watch every variable and write settings.json on any change."""
         for var in (self._cam_var, self._mon_var, self._res_var,
-                    self._fps_var, self._hand_var, self._sens_var,
-                    self._mirror_var, self._show_var, self._gpu_var):
+                    self._fps_var, self._hand_var, self._mode_var,
+                    self._sens_var, self._mirror_var, self._show_var, self._gpu_var):
             var.trace_add("write", self._save)
 
     def _reset_defaults(self):
@@ -406,6 +417,11 @@ class HandmouseGUI(tk.Tk):
                 return r[1], r[2]
         return "640", "480"
 
+    def _tracking_mode(self):
+        """Extract 'relative' or 'absolute' from the display label."""
+        label = self._mode_var.get()
+        return "absolute" if label.startswith("absolute") else "relative"
+
     def _mon_index(self):
         try:
             return int(self._mon_var.get().split(":")[0].strip())
@@ -424,6 +440,7 @@ class HandmouseGUI(tk.Tk):
             "--hand",        self._hand_var.get(),
             "--monitor",     str(self._mon_index()),
             "--sensitivity", f"{self._sens_var.get():.2f}",
+            "--mode",        self._tracking_mode(),
         ]
         if self._mirror_var.get(): cmd.append("--mirror")
         if self._show_var.get():   cmd.append("--show")
