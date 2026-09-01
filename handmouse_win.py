@@ -159,7 +159,7 @@ class FFmpegCamera:
 # ── mouse controller ──────────────────────────────────────────────────────────
 
 class MouseController:
-    SCROLL_LINES_PER_UNIT = 8   # relative mode: scroll lines per normalised unit
+    SCROLL_LINES_PER_UNIT = 50  # scroll lines per full normalised unit of hand travel
     SCROLL_SCALE_ABS      = 15  # absolute mode: camera pixels of movement per scroll line
 
     def __init__(self, monitor, cam_w, cam_h, mirror, sensitivity=1.0,
@@ -193,7 +193,8 @@ class MouseController:
         # ── relative mode state ──
         self._px = EMA(0.4)
         self._py = EMA(0.4)
-        self._prev_palm = None    # None = anchor fresh on next frame
+        self._prev_palm  = None   # None = anchor fresh on next frame
+        self._scroll_acc = 0.0   # fractional scroll accumulator
 
         # ── absolute mode state ──
         self.sx = EMA(0.35)       # screen-coord smoothers
@@ -289,6 +290,13 @@ class MouseController:
         this ensures any drift (DPI rounding, another app nudging the cursor, etc.)
         never accumulates and the cursor can't suddenly jump to a stale position.
         """
+        # tiny dead zone — swallows detection noise during precision clicks
+        # without being noticeable during normal movement (~1-2px at default settings)
+        DEAD = 0.0004
+        if abs(dpx) < DEAD: dpx = 0.0
+        if abs(dpy) < DEAD: dpy = 0.0
+        if dpx == 0.0 and dpy == 0.0:
+            return
         # clamp to prevent corner-snap teleporting the cursor
         dpx = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpx))
         dpy = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpy))
@@ -343,16 +351,21 @@ class MouseController:
                     pyautogui.mouseUp(button="left");  self._left_down = False
                 if self._right_down:
                     pyautogui.mouseUp(button="right"); self._right_down = False
-                lines = int(-dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity)
+                # accumulate fractional scroll — int() per frame would always be 0
+                self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity
+                lines = int(self._scroll_acc)
                 if lines:
                     pyautogui.scroll(lines)
+                    self._scroll_acc -= lines   # keep the remainder
 
         elif gesture == "fist":
             self.cleanup()
             self._reset_tracking()
+            self._scroll_acc = 0.0
 
         else:  # "none"
             self._reset_tracking()
+            self._scroll_acc = 0.0
 
 
 # ── hand selector ─────────────────────────────────────────────────────────────
