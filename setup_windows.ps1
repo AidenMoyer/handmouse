@@ -73,7 +73,7 @@ if (-not (Test-Path "venv-win\Scripts\python.exe")) {
 
 $pip = "venv-win\Scripts\pip.exe"
 & $pip install --upgrade pip --quiet
-& $pip install mediapipe opencv-python numpy pyautogui --quiet
+& $pip install mediapipe opencv-python numpy pyautogui screeninfo --quiet
 Ok "Python packages installed"
 
 # ── 3. MediaPipe model ────────────────────────────────────────────────────────
