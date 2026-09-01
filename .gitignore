@@ -6,3 +6,4 @@ __pycache__/
 *.task
 *.egg-info/
 .DS_Store
+settings.json
