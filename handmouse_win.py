@@ -49,6 +49,11 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 
+# MediaPipe was designed for ~640px input; anything larger wastes CPU and can
+# crash. Frames captured at higher resolution are downscaled to this before
+# inference — landmark coords are normalised so accuracy is unaffected.
+INFER_W, INFER_H = 640, 480
+
 
 # ── monitor helpers ───────────────────────────────────────────────────────────
 
@@ -186,9 +191,8 @@ class MouseController:
         self._MAX_DELTA = 0.15
 
         # ── relative mode state ──
-        # alpha=0.3 → ~3-frame lag at 30fps; smooth without feeling sluggish
-        self._px = EMA(0.3)
-        self._py = EMA(0.3)
+        self._px = EMA(0.4)
+        self._py = EMA(0.4)
         self._prev_palm = None    # None = anchor fresh on next frame
 
         # ── absolute mode state ──
@@ -285,12 +289,6 @@ class MouseController:
         this ensures any drift (DPI rounding, another app nudging the cursor, etc.)
         never accumulates and the cursor can't suddenly jump to a stale position.
         """
-        # dead zone: ignore sub-pixel jitter when hand is nearly still
-        DEAD = 0.002
-        if abs(dpx) < DEAD: dpx = 0.0
-        if abs(dpy) < DEAD: dpy = 0.0
-        if dpx == 0.0 and dpy == 0.0:
-            return
         # clamp to prevent corner-snap teleporting the cursor
         dpx = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpx))
         dpy = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpy))
@@ -423,7 +421,8 @@ def build_hands(use_gpu: bool):
             return detector
         except Exception as e:
             if delegate == BaseOptions.Delegate.GPU:
-                print(f"GPU delegate unavailable ({e}), falling back to CPU")
+                print(f"GPU delegate unavailable — the standard 'pip install mediapipe' "
+                      f"on Windows is compiled without GPU support. Running on CPU+XNNPACK.")
             else:
                 raise
     raise RuntimeError("Could not initialise hand detector on any delegate")
@@ -515,7 +514,16 @@ def main():
                 continue
             last_seq = seq
 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Downscale to inference size before MediaPipe.
+            # MediaPipe was designed for ~640px; sending full 1080p frames wastes
+            # CPU and can crash due to its internal fixed-size buffers.
+            if args.width > INFER_W or args.height > INFER_H:
+                scale = min(INFER_W / args.width, INFER_H / args.height)
+                infer = cv2.resize(frame, (0, 0), fx=scale, fy=scale,
+                                   interpolation=cv2.INTER_LINEAR)
+            else:
+                infer = frame
+            rgb = cv2.cvtColor(infer, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             ts_ms = int((time.monotonic() - _t0) * 1000)
             result = hands.detect_for_video(mp_image, ts_ms)

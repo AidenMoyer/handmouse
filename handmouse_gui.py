@@ -125,7 +125,6 @@ class HandmouseGUI(tk.Tk):
         self._apply_settings(self._settings)
         self._attach_save_traces()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        threading.Thread(target=self._probe_gpu, daemon=True).start()
 
     # ── styles ────────────────────────────────────────────────────────────────
 
@@ -254,8 +253,8 @@ class HandmouseGUI(tk.Tk):
         toggle(tog, "Preview window", self._show_var  ).pack(side="left", padx=8)
         self._gpu_cb = toggle(tog, "GPU accel", self._gpu_var)
         self._gpu_cb.pack(side="left", padx=8)
-        self._gpu_badge = tk.Label(tog, text="", font=("Segoe UI", 8),
-                                    bg=PANEL, fg=YELLOW)
+        self._gpu_badge = tk.Label(tog, text="(unavailable — pip mediapipe is CPU-only on Windows)",
+                                   font=("Segoe UI", 8), bg=PANEL, fg=MUTED)
         self._gpu_badge.pack(side="left")
 
         # Refresh + Reset row
