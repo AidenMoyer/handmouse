@@ -166,16 +166,24 @@ class MouseController:
         self.mode = mode            # "relative" | "absolute"
 
         # Virtual desktop bounds (relative mode can roam all monitors)
-        if all_monitors:
-            vd_x1 = min(m.x for m in all_monitors)
-            vd_y1 = min(m.y for m in all_monitors)
-            vd_x2 = max(m.x + m.width  for m in all_monitors)
-            vd_y2 = max(m.y + m.height for m in all_monitors)
-        else:
-            vd_x1, vd_y1 = monitor.x, monitor.y
-            vd_x2 = monitor.x + monitor.width
-            vd_y2 = monitor.y + monitor.height
+        mons = all_monitors or [monitor]
+        vd_x1 = min(m.x for m in mons)
+        vd_y1 = min(m.y for m in mons)
+        vd_x2 = max(m.x + m.width  for m in mons)
+        vd_y2 = max(m.y + m.height for m in mons)
         self._vd = (vd_x1, vd_y1, vd_x2, vd_y2)
+
+        # Speed reference: always scale against the primary monitor so that
+        # cursor speed is the same regardless of how many monitors are connected
+        # or what their sizes are.
+        primary = next((m for m in mons if m.is_primary), mons[0])
+        self._ref_w = primary.width
+        self._ref_h = primary.height
+
+        # Max hand movement per frame (in normalised units) before we clamp.
+        # At 30 fps a comfortable fast swipe ≈ 0.08/frame; 0.15 allows sprint-speed
+        # without letting a corner-snap teleport the cursor across monitors.
+        self._MAX_DELTA = 0.15
 
         # ── relative mode state ──
         self._px = EMA(0.5)       # palm position smoothers
@@ -272,13 +280,21 @@ class MouseController:
         self._py.val    = None
 
     def _move_delta(self, dpx, dpy):
-        """Apply a normalised-coord delta, clamped to the virtual desktop."""
+        """Apply a normalised-coord delta, clamped to the virtual desktop.
+
+        Speed is always relative to the primary monitor size so the cursor moves
+        at the same rate regardless of how many monitors are connected.  The per-
+        frame delta is capped so a fast corner-snap can't teleport the cursor.
+        """
         if self._cx is None:
             cx, cy = pyautogui.position()
             self._cx, self._cy = float(cx), float(cy)
+        # clamp per-frame delta to prevent accidental large jumps
+        dpx = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpx))
+        dpy = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpy))
         vx1, vy1, vx2, vy2 = self._vd
-        self._cx = max(vx1, min(vx2 - 1, self._cx + dpx * self.sensitivity * (vx2 - vx1)))
-        self._cy = max(vy1, min(vy2 - 1, self._cy + dpy * self.sensitivity * (vy2 - vy1)))
+        self._cx = max(vx1, min(vx2 - 1, self._cx + dpx * self.sensitivity * self._ref_w))
+        self._cy = max(vy1, min(vy2 - 1, self._cy + dpy * self.sensitivity * self._ref_h))
         pyautogui.moveTo(int(self._cx), int(self._cy))
 
     def _update_rel(self, palm, gesture):
