@@ -197,6 +197,13 @@ class MouseController:
         self._scroll_acc   = 0.0   # fractional scroll accumulator
         self._middle_fired = False  # fire middle click only once per gesture
 
+        # Gesture debounce: require a gesture to be stable for this many frames
+        # before firing any button action. Prevents phantom clicks from the noisy
+        # first few frames after a hand enters the camera view.
+        self._STABLE_FRAMES = 4
+        self._cur_gesture   = None
+        self._gesture_count = 0
+
         # ── absolute mode state ──
         self.sx = EMA(0.35)       # screen-coord smoothers
         self.sy = EMA(0.35)
@@ -323,15 +330,27 @@ class MouseController:
         px = self._px.update(self._norm_x(palm[0]))
         py = self._py.update(palm[1])
 
+        # Gesture stability debounce — prevents phantom clicks when the hand
+        # first enters the camera view and MediaPipe misclassifies early frames.
+        if gesture == self._cur_gesture:
+            self._gesture_count = min(self._gesture_count + 1, self._STABLE_FRAMES)
+        else:
+            self._cur_gesture   = gesture
+            self._gesture_count = 0
+        stable = self._gesture_count >= self._STABLE_FRAMES
+
         if gesture in ("move", "left", "right", "scroll", "middle"):
             if self._prev_palm is None:
                 # First frame after hand appears / fist released:
                 # anchor here so the cursor doesn't jump.
                 self._prev_palm = (px, py)
-                if gesture == "left" and not self._left_down:
-                    pyautogui.mouseDown(button="left");  self._left_down = True
-                elif gesture == "right" and not self._right_down:
-                    pyautogui.mouseDown(button="right"); self._right_down = True
+                # Only initiate button actions if gesture is already stable
+                # (re-entry after a stable hold is fine; first-frame noise is not)
+                if stable:
+                    if gesture == "left" and not self._left_down:
+                        pyautogui.mouseDown(button="left");  self._left_down = True
+                    elif gesture == "right" and not self._right_down:
+                        pyautogui.mouseDown(button="right"); self._right_down = True
                 return
 
             dpx = px - self._prev_palm[0]
@@ -346,52 +365,61 @@ class MouseController:
                 self._move_delta(dpx, dpy)
 
             elif gesture == "left":
-                if self._right_down:
-                    pyautogui.mouseUp(button="right"); self._right_down = False
+                if stable:
+                    if self._right_down:
+                        pyautogui.mouseUp(button="right"); self._right_down = False
+                    if not self._left_down:
+                        pyautogui.mouseDown(button="left"); self._left_down = True
                 self._move_delta(dpx, dpy)
-                if not self._left_down:
-                    pyautogui.mouseDown(button="left"); self._left_down = True
 
             elif gesture == "right":
-                if self._left_down:
-                    pyautogui.mouseUp(button="left");  self._left_down = False
+                if stable:
+                    if self._left_down:
+                        pyautogui.mouseUp(button="left");  self._left_down = False
+                    if not self._right_down:
+                        pyautogui.mouseDown(button="right"); self._right_down = True
                 self._move_delta(dpx, dpy)
-                if not self._right_down:
-                    pyautogui.mouseDown(button="right"); self._right_down = True
 
             elif gesture == "scroll":
-                if self._left_down:
-                    pyautogui.mouseUp(button="left");  self._left_down = False
-                if self._right_down:
-                    pyautogui.mouseUp(button="right"); self._right_down = False
+                if stable:
+                    if self._left_down:
+                        pyautogui.mouseUp(button="left");  self._left_down = False
+                    if self._right_down:
+                        pyautogui.mouseUp(button="right"); self._right_down = False
                 self._middle_fired = False
-                # accumulate fractional scroll — int() per frame would always be 0
-                self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity
-                lines = int(self._scroll_acc)
-                if lines:
-                    pyautogui.scroll(lines)
-                    self._scroll_acc -= lines   # keep the remainder
+                if stable:
+                    # accumulate fractional scroll — int() per frame would always be 0
+                    self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity
+                    lines = int(self._scroll_acc)
+                    if lines:
+                        pyautogui.scroll(lines)
+                        self._scroll_acc -= lines   # keep the remainder
 
             elif gesture == "middle":
-                if self._left_down:
-                    pyautogui.mouseUp(button="left");  self._left_down = False
-                if self._right_down:
-                    pyautogui.mouseUp(button="right"); self._right_down = False
-                self._scroll_acc = 0.0
-                if not self._middle_fired:
-                    pyautogui.click(button="middle")
-                    self._middle_fired = True
+                if stable:
+                    if self._left_down:
+                        pyautogui.mouseUp(button="left");  self._left_down = False
+                    if self._right_down:
+                        pyautogui.mouseUp(button="right"); self._right_down = False
+                    self._scroll_acc = 0.0
+                    if not self._middle_fired:
+                        pyautogui.click(button="middle")
+                        self._middle_fired = True
 
         elif gesture == "fist":
             self.cleanup()
             self._reset_tracking()
-            self._scroll_acc   = 0.0
-            self._middle_fired = False
+            self._scroll_acc    = 0.0
+            self._middle_fired  = False
+            self._cur_gesture   = None
+            self._gesture_count = 0
 
         else:  # "none"
             self._reset_tracking()
-            self._scroll_acc   = 0.0
-            self._middle_fired = False
+            self._scroll_acc    = 0.0
+            self._middle_fired  = False
+            self._cur_gesture   = None
+            self._gesture_count = 0
 
 
 # ── hand selector ─────────────────────────────────────────────────────────────
