@@ -159,7 +159,7 @@ class FFmpegCamera:
 # ── mouse controller ──────────────────────────────────────────────────────────
 
 class MouseController:
-    SCROLL_LINES_PER_UNIT = 50  # scroll lines per full normalised unit of hand travel
+    SCROLL_LINES_PER_UNIT = 150  # scroll lines per full normalised unit of hand travel
     SCROLL_SCALE_ABS      = 15  # absolute mode: camera pixels of movement per scroll line
 
     def __init__(self, monitor, cam_w, cam_h, mirror, sensitivity=1.0,

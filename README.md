@@ -4,7 +4,11 @@ Control your mouse with your hand using a webcam. No special hardware needed.
 
 ## Quick install (Windows)
 
-Open **PowerShell** (search "PowerShell" in Start — does **not** need to be run as Administrator) and run these commands in order:
+**Before you start**, make sure these are installed:
+- **WSL (Windows Subsystem for Linux)** — open PowerShell as Administrator and run: `wsl --install`, then restart
+- **Git** — download from [git-scm.com](https://git-scm.com/download/win) or run: `winget install Git.Git`
+
+Then open a regular (non-admin) **PowerShell** window and run:
 
 ```powershell
 # 1. Allow PowerShell scripts to run (only needed once per machine)
@@ -16,13 +20,14 @@ cd handmouse
 .\setup_windows.ps1
 ```
 
-That's it. The setup script will:
-- Install Python 3.11 if missing (via winget)
-- Install ffmpeg if missing (via winget)
-- Install the Visual C++ runtime (required by mediapipe / opencv)
-- Create a Python virtual environment and install all packages
-- Download the MediaPipe hand-landmarker model (~8 MB)
-- Create a **handmouse** shortcut on your Desktop
+The setup script handles everything else:
+- Installs Python 3.11 if missing (via winget)
+- Installs Git if missing (via winget)
+- Installs ffmpeg if missing (via winget)
+- Installs the Visual C++ runtime (required by mediapipe / opencv)
+- Creates a Python virtual environment and installs all packages
+- Downloads the MediaPipe hand-landmarker model (~8 MB)
+- Creates a **handmouse** shortcut on your Desktop
 
 After setup, double-click the **handmouse** shortcut on your Desktop to open the control panel.
 

@@ -30,7 +30,7 @@ Write-Host ''
 # ---------------------------------------------------------------------------
 # 0. winget
 # ---------------------------------------------------------------------------
-Say '[0/6] Checking winget'
+Say '[0/7] Checking winget'
 $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
 if (-not $wingetCmd) {
     Warn 'winget not found. It ships with Windows 10 21H2+ and Windows 11.'
@@ -43,9 +43,28 @@ if (-not $wingetCmd) {
 Ok 'winget available'
 
 # ---------------------------------------------------------------------------
-# 1. Python
+# 1. Git
 # ---------------------------------------------------------------------------
-Say '[1/6] Checking Python'
+Say '[1/7] Checking git'
+$gitCmd = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitCmd) {
+    Warn 'git not found -- installing Git for Windows via winget...'
+    winget install --id Git.Git --accept-source-agreements --accept-package-agreements
+    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    $env:PATH    = "$machinePath;$userPath"
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCmd) {
+        Warn 'git still not in PATH. Close and reopen PowerShell, then re-run setup.'
+        Write-Error 'git not found after install.'
+    }
+}
+Ok "git $( & git --version )"
+
+# ---------------------------------------------------------------------------
+# 2. Python
+# ---------------------------------------------------------------------------
+Say '[2/7] Checking Python'
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) {
     Warn 'Python not found -- installing Python 3.11 via winget...'
@@ -74,7 +93,7 @@ Ok "Python $pyVersion with tkinter"
 # ---------------------------------------------------------------------------
 # 2. ffmpeg
 # ---------------------------------------------------------------------------
-Say '[2/6] Checking ffmpeg'
+Say '[3/7] Checking ffmpeg'
 $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $ffmpegCmd) {
     Warn 'ffmpeg not found -- installing via winget...'
@@ -110,7 +129,7 @@ Ok 'ffmpeg path written to scripts'
 # ---------------------------------------------------------------------------
 # 3. Visual C++ redistributable
 # ---------------------------------------------------------------------------
-Say '[3/6] Checking Visual C++ redistributable'
+Say '[4/7] Checking Visual C++ redistributable'
 $vcKey = 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'
 $vcOk  = (Test-Path $vcKey) -and (
     (Get-ItemProperty $vcKey -ErrorAction SilentlyContinue).Installed -eq 1
@@ -132,7 +151,7 @@ if (-not $vcOk) {
 # ---------------------------------------------------------------------------
 # 4. Python venv + packages
 # ---------------------------------------------------------------------------
-Say '[4/6] Setting up Python venv (venv-win)'
+Say '[5/7] Setting up Python venv (venv-win)'
 $venvPython = Join-Path $dir 'venv-win\Scripts\python.exe'
 if (-not (Test-Path $venvPython)) {
     python -m venv venv-win
@@ -141,12 +160,12 @@ if (-not (Test-Path $venvPython)) {
     Ok 'venv already exists'
 }
 
-$pip = Join-Path $dir 'venv-win\Scripts\pip.exe'
+# Use 'python -m pip' -- more reliable than calling pip.exe directly on a fresh venv
 Write-Host '  Upgrading pip...'
-& $pip install --upgrade pip --quiet
+& $venvPython -m pip install --upgrade pip --quiet
 
 Write-Host '  Installing Python packages...'
-& $pip install --upgrade `
+& $venvPython -m pip install --upgrade `
     'mediapipe>=1.0.1' `
     'opencv-python>=4.9.0' `
     'numpy>=1.26' `
@@ -162,7 +181,7 @@ Ok 'Python packages installed'
 # ---------------------------------------------------------------------------
 # 5. MediaPipe model
 # ---------------------------------------------------------------------------
-Say '[5/6] Downloading hand-landmarker model'
+Say '[6/7] Downloading hand-landmarker model'
 $modelPath = Join-Path $dir 'hand_landmarker.task'
 if (-not (Test-Path $modelPath)) {
     $modelUrl = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
@@ -182,7 +201,7 @@ if (-not (Test-Path $modelPath)) {
 # ---------------------------------------------------------------------------
 # 6. Desktop shortcut
 # ---------------------------------------------------------------------------
-Say '[6/6] Creating desktop shortcut'
+Say '[7/7] Creating desktop shortcut'
 $pythonwExe = Join-Path $dir 'venv-win\Scripts\pythonw.exe'
 if (-not (Test-Path $pythonwExe)) {
     $pythonwExe = Join-Path $dir 'venv-win\Scripts\python.exe'
