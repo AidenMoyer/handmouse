@@ -54,22 +54,24 @@ def fist_closed(lm):
                for tip, mcp in pairs)
 
 
+def _pinch_dist(lm, thumb, other):
+    """Normalised distance from thumb tip to another fingertip (relative to palm size)."""
+    palm = _palm_center(lm)
+    return _dist(lm[thumb], lm[other]) / max(_dist(lm[WRIST], palm), 1e-6)
+
+
 def pinch_pair(lm, thumb, other, thresh=0.42):
     """True if thumb tip is close to `other` tip (relative to wrist-palm dist)."""
-    palm = _palm_center(lm)
-    d = _dist(lm[thumb], lm[other]) / max(_dist(lm[WRIST], palm), 1e-6)
-    return d < thresh
+    return _pinch_dist(lm, thumb, other) < thresh
 
 
 def classify(lm, pinch_thresh=0.42):
     """Return (gesture, fingers) where gesture is one of:
     'fist', 'move', 'left', 'scroll', 'right', 'none'.
 
-    Order matters:
-      1. Fist checked first — closing the hand always stops movement immediately.
-      2. Pinches checked next — thumb+finger contact overrides open-hand state.
-      3. All fingers open → move.
-      4. Anything else → none (transitional / ambiguous state).
+    Pinch winner is determined by which fingertip is *closest* to the thumb,
+    not by check order — this prevents the adjacent index finger from stealing
+    a thumb+middle (scroll) pinch even when both are within threshold.
     """
     fingers = finger_states(lm)
 
@@ -77,12 +79,17 @@ def classify(lm, pinch_thresh=0.42):
     if fist_closed(lm):
         return "fist", fingers
 
-    # 2. Pinch gestures
-    if pinch_pair(lm, THUMB_TIP, INDEX_TIP,  pinch_thresh):
-        return "left", fingers
-    if pinch_pair(lm, THUMB_TIP, MIDDLE_TIP, pinch_thresh):
-        return "scroll", fingers
-    if pinch_pair(lm, THUMB_TIP, PINKY_TIP,  pinch_thresh):
+    # 2. Pinch — winner is whichever finger is currently closest to the thumb
+    d_idx = _pinch_dist(lm, THUMB_TIP, INDEX_TIP)
+    d_mid = _pinch_dist(lm, THUMB_TIP, MIDDLE_TIP)
+    d_pnk = _pinch_dist(lm, THUMB_TIP, PINKY_TIP)
+    best_d = min(d_idx, d_mid, d_pnk)
+
+    if best_d < pinch_thresh:
+        if best_d == d_idx:
+            return "left",   fingers
+        if best_d == d_mid:
+            return "scroll", fingers
         return "right", fingers
 
     # 3. All fingers extended → move mouse

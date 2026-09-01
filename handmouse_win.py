@@ -186,8 +186,9 @@ class MouseController:
         self._MAX_DELTA = 0.15
 
         # ── relative mode state ──
-        self._px = EMA(0.5)       # palm position smoothers
-        self._py = EMA(0.5)
+        # alpha=0.3 → ~3-frame lag at 30fps; smooth without feeling sluggish
+        self._px = EMA(0.3)
+        self._py = EMA(0.3)
         self._prev_palm = None    # None = anchor fresh on next frame
 
         # ── absolute mode state ──
@@ -284,7 +285,13 @@ class MouseController:
         this ensures any drift (DPI rounding, another app nudging the cursor, etc.)
         never accumulates and the cursor can't suddenly jump to a stale position.
         """
-        # clamp per-frame delta to prevent accidental large jumps from fast swipes
+        # dead zone: ignore sub-pixel jitter when hand is nearly still
+        DEAD = 0.002
+        if abs(dpx) < DEAD: dpx = 0.0
+        if abs(dpy) < DEAD: dpy = 0.0
+        if dpx == 0.0 and dpy == 0.0:
+            return
+        # clamp to prevent corner-snap teleporting the cursor
         dpx = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpx))
         dpy = max(-self._MAX_DELTA, min(self._MAX_DELTA, dpy))
         cx, cy = pyautogui.position()   # always ground truth from the OS
