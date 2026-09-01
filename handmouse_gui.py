@@ -100,12 +100,8 @@ class HandmouseGUI(tk.Tk):
     def _setup_styles(self):
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("TCombobox",
-                         fieldbackground=DARK, background=PANEL,
-                         foreground=TEXT, selectforeground=TEXT,
-                         selectbackground=ACCENT, arrowcolor=ACCENT)
         style.configure("TScale", background=PANEL, troughcolor=DARK,
-                         sliderlength=18, sliderrelief="flat")
+                        sliderlength=18, sliderrelief="flat")
 
     # ── UI ─────────────────────────────────────────────────────────────────
 
@@ -129,33 +125,53 @@ class HandmouseGUI(tk.Tk):
                      bg=PANEL, fg=TEXT, anchor="w", width=17
                      ).grid(row=row, column=0, sticky="w", padx=14, pady=5)
 
-        def combo(parent, values, var, row):
-            cb = ttk.Combobox(parent, values=values, textvariable=var,
-                              state="readonly", font=("Segoe UI", 10), width=28)
-            cb.grid(row=row, column=1, sticky="ew", padx=14, pady=5)
-            return cb
+        def menu(parent, values, var, row):
+            """Menubutton + Menu — fully Tk-styled, text always visible."""
+            if values:
+                var.set(values[0])
+            btn = tk.Menubutton(parent, textvariable=var,
+                                font=("Segoe UI", 10),
+                                bg="#3a3a5c", fg=TEXT,
+                                activebackground=ACCENT, activeforeground="#ffffff",
+                                relief="groove", bd=1,
+                                highlightthickness=0,
+                                anchor="w", padx=10, pady=5, width=30)
+            m = tk.Menu(btn, tearoff=False,
+                        bg="#2e2e50", fg=TEXT,
+                        activebackground=ACCENT, activeforeground="#ffffff",
+                        font=("Segoe UI", 10), bd=0)
+            for v in values:
+                m.add_command(label=v, command=lambda val=v: var.set(val))
+            btn["menu"] = m
+            btn.grid(row=row, column=1, sticky="ew", padx=14, pady=5)
+            return btn, m   # return both so caller can repopulate menu
 
         # Camera
         self._cameras = list_cameras()
         self._cam_var = tk.StringVar(value=self._cameras[0])
-        lbl("Camera", 0); combo(card, self._cameras, self._cam_var, 0)
+        lbl("Camera", 0)
+        self._cam_btn, self._cam_menu = menu(card, self._cameras, self._cam_var, 0)
 
         # Monitor
         self._monitors = list_monitors()
         self._mon_var = tk.StringVar(value=self._monitors[0])
-        lbl("Control monitor", 1); combo(card, self._monitors, self._mon_var, 1)
+        lbl("Control monitor", 1)
+        self._mon_btn, self._mon_menu = menu(card, self._monitors, self._mon_var, 1)
 
         # Resolution
         self._res_var = tk.StringVar(value=RESOLUTIONS[0][0])
-        lbl("Resolution", 2); combo(card, [r[0] for r in RESOLUTIONS], self._res_var, 2)
+        lbl("Resolution", 2)
+        menu(card, [r[0] for r in RESOLUTIONS], self._res_var, 2)
 
         # FPS
         self._fps_var = tk.StringVar(value="30")
-        lbl("FPS", 3); combo(card, FPS_OPTIONS, self._fps_var, 3)
+        lbl("FPS", 3)
+        menu(card, FPS_OPTIONS, self._fps_var, 3)
 
         # Hand
         self._hand_var = tk.StringVar(value="any")
-        lbl("Track hand", 4); combo(card, HAND_OPTIONS, self._hand_var, 4)
+        lbl("Track hand", 4)
+        menu(card, HAND_OPTIONS, self._hand_var, 4)
 
         # Sensitivity
         self._sens_var = tk.DoubleVar(value=1.0)
@@ -248,9 +264,17 @@ class HandmouseGUI(tk.Tk):
         threading.Thread(target=_scan, daemon=True).start()
 
     def _apply_refresh(self, cams, mons):
-        self._cameras = cams
+        self._cameras  = cams
         self._monitors = mons
+        # repopulate camera menu
+        self._cam_menu.delete(0, "end")
+        for v in cams:
+            self._cam_menu.add_command(label=v, command=lambda val=v: self._cam_var.set(val))
         self._cam_var.set(cams[0] if cams else "")
+        # repopulate monitor menu
+        self._mon_menu.delete(0, "end")
+        for v in mons:
+            self._mon_menu.add_command(label=v, command=lambda val=v: self._mon_var.set(val))
         self._mon_var.set(mons[0] if mons else "")
         self._log_append(f"Found {len(cams)} camera(s), {len(mons)} monitor(s)\n")
 

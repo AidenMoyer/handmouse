@@ -84,6 +84,11 @@ class FFmpegCamera:
         self.frame_bytes = width * height * 3
         cmd = [
             FFMPEG,
+            # low-latency flags: disable internal buffering so frames arrive in real-time
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
+            "-probesize", "32",
+            "-analyzeduration", "0",
             "-loglevel", "quiet",
             "-f", "dshow",
             "-video_size", f"{width}x{height}",
@@ -91,27 +96,55 @@ class FFmpegCamera:
             "-i", f"video={device_name}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
+            # no output buffering either
+            "-flush_packets", "1",
             "-",
         ]
-        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self._proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            bufsize=0,  # unbuffered pipe on our side too
+        )
         self._frame = None
-        self._lock = threading.Lock()
+        self._seq   = 0   # increments every time a new frame is stored
+        self._lock  = threading.Lock()
         self._running = True
         self._thread = threading.Thread(target=self._reader, daemon=True)
         self._thread.start()
 
     def _reader(self):
+        """Read ffmpeg output as fast as possible, always keeping only the latest frame.
+
+        If inference is slow and frames pile up in the OS pipe buffer, we drain
+        them all and only expose the newest one — this prevents lag from building up.
+        """
+        buf = bytearray()
         while self._running:
-            raw = self._proc.stdout.read(self.frame_bytes)
-            if len(raw) < self.frame_bytes:
+            chunk = self._proc.stdout.read(65536)
+            if not chunk:
                 break
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.height, self.width, 3))
-            with self._lock:
-                self._frame = frame
+            buf.extend(chunk)
+            # consume ALL complete frames from the buffer, keeping only the last
+            while len(buf) >= self.frame_bytes:
+                raw = bytes(buf[:self.frame_bytes])
+                del buf[:self.frame_bytes]
+                frame = np.frombuffer(raw, dtype=np.uint8).reshape(
+                    (self.height, self.width, 3))
+                with self._lock:
+                    self._frame = frame
+                    self._seq  += 1
 
     def read(self):
         with self._lock:
-            return self._frame is not None, (self._frame.copy() if self._frame is not None else None)
+            if self._frame is None:
+                return False, None
+            return True, self._frame.copy()
+
+    def read_seq(self):
+        """Return (seq, frame) — caller can compare seq to detect a new frame."""
+        with self._lock:
+            if self._frame is None:
+                return 0, None
+            return self._seq, self._frame.copy()
 
     def release(self):
         self._running = False
@@ -207,27 +240,36 @@ class MouseController:
 
 # ── hand selector ─────────────────────────────────────────────────────────────
 
-def pick_hand(result, prefer: str):
+def pick_hand(result, prefer: str, mirror: bool):
     """
-    Return (landmarks, handedness_label) for the preferred hand, or None.
+    Return (landmarks, user_hand_label) for the preferred hand, or (None, None).
 
-    MediaPipe reports handedness from the image perspective (not mirrored),
-    so "Left" from the model = the person's right hand when camera is mirrored.
-    We flip the label to match the user's physical hand.
+    MediaPipe labels hands from the *camera's* point of view (as if reading a
+    non-mirrored image).  When mirror=True the image is spatially flipped before
+    display, so camera-Left = user's Right.  When mirror=False the image matches
+    reality, so camera-Left = user's Left.
+
+    We also require the top-category confidence > 0.6 to avoid the model
+    flip-flopping between "Left"/"Right" on an ambiguous single detection.
     """
     if not result.hand_landmarks:
         return None, None
 
+    best_lm, best_label, best_score = None, None, 0.0
+
     for lm_list, handed_list in zip(result.hand_landmarks, result.handedness):
-        # top category_name is "Left" or "Right" (camera perspective)
-        raw_label = handed_list[0].category_name  # "Left" or "Right"
-        # flip: camera-left = user's right (typical mirrored selfie-cam)
-        user_label = "Right" if raw_label == "Left" else "Left"
+        cat = handed_list[0]
+        score = cat.score
+        if score < 0.6:          # low-confidence classification — skip
+            continue
+        raw_label = cat.category_name   # "Left" or "Right" (camera view)
+        user_label = ("Right" if raw_label == "Left" else "Left") if mirror else raw_label
 
         if prefer == "any" or user_label.lower() == prefer.lower():
-            return lm_list, user_label
+            if score > best_score:       # take the highest-confidence match
+                best_lm, best_label, best_score = lm_list, user_label, score
 
-    return None, None
+    return best_lm, best_label
 
 
 # ── GPU delegate helper ───────────────────────────────────────────────────────
@@ -328,18 +370,24 @@ def main():
         sys.exit(1)
     print(" ready!")
 
+    last_seq = 0
     try:
         while True:
-            ok, frame = cam.read()
-            if not ok or frame is None:
-                time.sleep(0.01)
+            seq, frame = cam.read_seq()
+            if frame is None:
+                time.sleep(0.005)
                 continue
+            if seq == last_seq:
+                # no new frame yet — yield briefly instead of busy-spinning
+                time.sleep(0.003)
+                continue
+            last_seq = seq
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = hands.detect(mp_image)
 
-            lm_list, hand_label = pick_hand(result, args.hand)
+            lm_list, hand_label = pick_hand(result, args.hand, args.mirror)
 
             if lm_list is not None:
                 lm = [(lk.x, lk.y, lk.z) for lk in lm_list]
@@ -352,22 +400,24 @@ def main():
                 disp = frame.copy()
                 if args.mirror:
                     disp = cv2.flip(disp, 1)
-                # draw all detected hands; highlight chosen one
-                for i, (hl, hd) in enumerate(zip(result.hand_landmarks, result.handedness)):
-                    raw = hd[0].category_name
-                    user = "Right" if raw == "Left" else "Left"
+                for hl, hd in zip(result.hand_landmarks, result.handedness):
+                    cat = hd[0]
+                    raw = cat.category_name
+                    user = ("Right" if raw == "Left" else "Left") if args.mirror else raw
                     chosen = (args.hand == "any" or user.lower() == args.hand)
-                    color = (0, 255, 0) if chosen else (100, 100, 100)
+                    # dim low-confidence detections visually
+                    alpha = cat.score
+                    color = (int(0 * alpha), int(255 * alpha), int(0 * alpha)) if chosen \
+                            else (80, 80, 80)
                     for lk in hl:
                         cx = int((1 - lk.x if args.mirror else lk.x) * args.width)
                         cy = int(lk.y * args.height)
                         cv2.circle(disp, (cx, cy), 4, color, -1)
-                    # label
                     wrist = hl[0]
                     wx = int((1 - wrist.x if args.mirror else wrist.x) * args.width)
                     wy = int(wrist.y * args.height) + 20
-                    cv2.putText(disp, user, (wx, wy),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    cv2.putText(disp, f"{user} {cat.score:.0%}", (wx, wy),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
                 cv2.imshow("handmouse", disp)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
