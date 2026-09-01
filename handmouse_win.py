@@ -163,11 +163,12 @@ class MouseController:
     SCROLL_SCALE_ABS      = 15  # absolute mode: camera pixels of movement per scroll line
 
     def __init__(self, monitor, cam_w, cam_h, mirror, sensitivity=1.0,
-                 mode="relative", all_monitors=None):
+                 mode="relative", all_monitors=None, scroll_speed=1.0):
         self.mon = monitor          # screeninfo Monitor (absolute mode maps to this)
         self.cw, self.ch = cam_w, cam_h
         self.mirror = mirror
         self.sensitivity = sensitivity
+        self.scroll_speed = scroll_speed
         self.mode = mode            # "relative" | "absolute"
 
         # Virtual desktop bounds (relative mode can roam all monitors)
@@ -389,7 +390,7 @@ class MouseController:
                 self._middle_fired = False
                 if stable:
                     # accumulate fractional scroll — int() per frame would always be 0
-                    self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity
+                    self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity * self.scroll_speed
                     lines = int(self._scroll_acc)
                     if lines:
                         pyautogui.scroll(lines)
@@ -513,6 +514,8 @@ def main():
                     help="Which hand to track (default: any)")
     ap.add_argument("--sensitivity", type=float, default=1.0,
                     help="Mouse sensitivity multiplier (0.1–20.0; higher = less hand movement needed)")
+    ap.add_argument("--scroll-speed", type=float, default=1.0,
+                    help="Scroll speed multiplier (1.0 = default, 2.0 = double, etc.)")
     ap.add_argument("--mode", choices=["relative", "absolute"], default="relative",
                     help="relative = trackpad style, moves freely across all monitors; "
                          "absolute = hand position maps directly to selected monitor")
@@ -545,12 +548,13 @@ def main():
     print(f"Monitor {args.monitor}: {mon.width}×{mon.height} at ({mon.x},{mon.y})"
           f"{'  (primary)' if mon.is_primary else ''}")
     print(f"Camera:  {args.camera!r} @ {args.width}×{args.height} {args.fps}fps")
-    print(f"Hand:    {args.hand}   Sensitivity: {args.sensitivity:.1f}×   Mode: {args.mode}")
+    print(f"Hand:    {args.hand}   Sensitivity: {args.sensitivity:.1f}×   Scroll: {args.scroll_speed:.1f}×   Mode: {args.mode}")
     print("Starting — Ctrl+C to stop")
 
     cam  = FFmpegCamera(args.camera, args.width, args.height, args.fps)
     ctrl = MouseController(mon, args.width, args.height, args.mirror, args.sensitivity,
-                           mode=args.mode, all_monitors=monitors)
+                           mode=args.mode, all_monitors=monitors,
+                           scroll_speed=args.scroll_speed)
     hands = build_hands(args.gpu)
 
     # wait for first frame
