@@ -1,0 +1,8 @@
+venv/
+venv-win/
+__pycache__/
+*.pyc
+*.pyo
+*.task
+*.egg-info/
+.DS_Store

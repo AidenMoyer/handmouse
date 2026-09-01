@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# handmouse launcher - uses the WSL venv python
+cd "$(dirname "$0")"
+source venv/bin/activate
+exec python handmouse.py "$@"
