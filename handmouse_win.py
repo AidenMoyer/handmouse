@@ -159,7 +159,7 @@ class FFmpegCamera:
 # ── mouse controller ──────────────────────────────────────────────────────────
 
 class MouseController:
-    SCROLL_LINES_PER_UNIT = 150  # scroll lines per full normalised unit of hand travel
+    SCROLL_LINES_PER_UNIT = 800  # scroll lines per full normalised unit of hand travel
     SCROLL_SCALE_ABS      = 15  # absolute mode: camera pixels of movement per scroll line
 
     def __init__(self, monitor, cam_w, cam_h, mirror, sensitivity=1.0,
@@ -193,8 +193,9 @@ class MouseController:
         # ── relative mode state ──
         self._px = EMA(0.4)
         self._py = EMA(0.4)
-        self._prev_palm  = None   # None = anchor fresh on next frame
-        self._scroll_acc = 0.0   # fractional scroll accumulator
+        self._prev_palm    = None   # None = anchor fresh on next frame
+        self._scroll_acc   = 0.0   # fractional scroll accumulator
+        self._middle_fired = False  # fire middle click only once per gesture
 
         # ── absolute mode state ──
         self.sx = EMA(0.35)       # screen-coord smoothers
@@ -216,6 +217,7 @@ class MouseController:
         if self._right_down:
             pyautogui.mouseUp(button="right")
             self._right_down = False
+        self._middle_fired = False
 
     def update(self, lm_norm, gesture):
         palm = _palm_center(lm_norm)
@@ -271,8 +273,19 @@ class MouseController:
                     pyautogui.scroll(int(lines))
                     self._scroll_anchor = (palm[0], palm[1])
 
+        elif gesture == "middle":
+            if self._left_down:
+                pyautogui.mouseUp(button="left");  self._left_down = False
+            if self._right_down:
+                pyautogui.mouseUp(button="right"); self._right_down = False
+            if not self._middle_fired:
+                pyautogui.click(button="middle")
+                self._middle_fired = True
+
         elif gesture == "fist":
-            self.cleanup(); self._scroll_anchor = None
+            self.cleanup()
+            self._scroll_anchor = None
+            self._middle_fired  = False
 
         # "none" — hold position without acting
 
@@ -310,7 +323,7 @@ class MouseController:
         px = self._px.update(self._norm_x(palm[0]))
         py = self._py.update(palm[1])
 
-        if gesture in ("move", "left", "right", "scroll"):
+        if gesture in ("move", "left", "right", "scroll", "middle"):
             if self._prev_palm is None:
                 # First frame after hand appears / fist released:
                 # anchor here so the cursor doesn't jump.
@@ -351,6 +364,7 @@ class MouseController:
                     pyautogui.mouseUp(button="left");  self._left_down = False
                 if self._right_down:
                     pyautogui.mouseUp(button="right"); self._right_down = False
+                self._middle_fired = False
                 # accumulate fractional scroll — int() per frame would always be 0
                 self._scroll_acc += -dpy * self.SCROLL_LINES_PER_UNIT * self.sensitivity
                 lines = int(self._scroll_acc)
@@ -358,14 +372,26 @@ class MouseController:
                     pyautogui.scroll(lines)
                     self._scroll_acc -= lines   # keep the remainder
 
+            elif gesture == "middle":
+                if self._left_down:
+                    pyautogui.mouseUp(button="left");  self._left_down = False
+                if self._right_down:
+                    pyautogui.mouseUp(button="right"); self._right_down = False
+                self._scroll_acc = 0.0
+                if not self._middle_fired:
+                    pyautogui.click(button="middle")
+                    self._middle_fired = True
+
         elif gesture == "fist":
             self.cleanup()
             self._reset_tracking()
-            self._scroll_acc = 0.0
+            self._scroll_acc   = 0.0
+            self._middle_fired = False
 
         else:  # "none"
             self._reset_tracking()
-            self._scroll_acc = 0.0
+            self._scroll_acc   = 0.0
+            self._middle_fired = False
 
 
 # ── hand selector ─────────────────────────────────────────────────────────────

@@ -54,7 +54,8 @@ After setup, double-click the **handmouse** shortcut on your Desktop to open the
 |---|---|
 | Open hand (all fingers extended) | Move mouse |
 | Thumb + index finger pinch | Left click / drag |
-| Thumb + middle finger pinch | Scroll |
+| Thumb + middle finger pinch | Scroll (move hand up/down) |
+| Thumb + ring finger pinch | Middle click (scroll-wheel click) |
 | Thumb + pinky finger pinch | Right click |
 | Closed fist | Pause — cursor freezes |
 

@@ -67,11 +67,16 @@ def pinch_pair(lm, thumb, other, thresh=0.42):
 
 def classify(lm, pinch_thresh=0.42):
     """Return (gesture, fingers) where gesture is one of:
-    'fist', 'move', 'left', 'scroll', 'right', 'none'.
+    'fist', 'move', 'left', 'scroll', 'middle', 'right', 'none'.
 
-    Pinch winner is determined by which fingertip is *closest* to the thumb,
-    not by check order — this prevents the adjacent index finger from stealing
-    a thumb+middle (scroll) pinch even when both are within threshold.
+    Gestures:
+      thumb + index  → left click / drag
+      thumb + middle → scroll (move hand up/down)
+      thumb + ring   → middle click (scroll-wheel click)
+      thumb + pinky  → right click
+
+    Pinch winner is whichever fingertip is *closest* to the thumb so that
+    adjacent fingers don't steal the gesture.
     """
     fingers = finger_states(lm)
 
@@ -79,17 +84,17 @@ def classify(lm, pinch_thresh=0.42):
     if fist_closed(lm):
         return "fist", fingers
 
-    # 2. Pinch — winner is whichever finger is currently closest to the thumb
+    # 2. Pinch — winner is the finger currently nearest the thumb
     d_idx = _pinch_dist(lm, THUMB_TIP, INDEX_TIP)
     d_mid = _pinch_dist(lm, THUMB_TIP, MIDDLE_TIP)
+    d_rng = _pinch_dist(lm, THUMB_TIP, RING_TIP)
     d_pnk = _pinch_dist(lm, THUMB_TIP, PINKY_TIP)
-    best_d = min(d_idx, d_mid, d_pnk)
+    best_d = min(d_idx, d_mid, d_rng, d_pnk)
 
     if best_d < pinch_thresh:
-        if best_d == d_idx:
-            return "left",   fingers
-        if best_d == d_mid:
-            return "scroll", fingers
+        if best_d == d_idx: return "left",   fingers
+        if best_d == d_mid: return "scroll", fingers
+        if best_d == d_rng: return "middle", fingers
         return "right", fingers
 
     # 3. All fingers extended → move mouse
