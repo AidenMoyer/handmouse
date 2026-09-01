@@ -370,7 +370,9 @@ def main():
         sys.exit(1)
     print(" ready!")
 
-    last_seq = 0
+    last_seq    = 0
+    no_hand_t   = None   # time when hand was last lost
+    BUTTON_RELEASE_GRACE = 0.6   # seconds before releasing held buttons after hand disappears
     try:
         while True:
             seq, frame = cam.read_seq()
@@ -378,7 +380,6 @@ def main():
                 time.sleep(0.005)
                 continue
             if seq == last_seq:
-                # no new frame yet — yield briefly instead of busy-spinning
                 time.sleep(0.003)
                 continue
             last_seq = seq
@@ -390,11 +391,18 @@ def main():
             lm_list, hand_label = pick_hand(result, args.hand, args.mirror)
 
             if lm_list is not None:
+                no_hand_t = None          # hand is back — reset the timer
                 lm = [(lk.x, lk.y, lk.z) for lk in lm_list]
                 gesture, _ = classify(lm)
                 ctrl.update(lm, gesture)
             else:
-                ctrl.cleanup()
+                # cursor stays at last position — just track how long the hand has been gone
+                now = time.monotonic()
+                if no_hand_t is None:
+                    no_hand_t = now
+                elif now - no_hand_t >= BUTTON_RELEASE_GRACE:
+                    # release held buttons after the grace period so clicks don't get stuck
+                    ctrl.cleanup()
 
             if args.show:
                 disp = frame.copy()
